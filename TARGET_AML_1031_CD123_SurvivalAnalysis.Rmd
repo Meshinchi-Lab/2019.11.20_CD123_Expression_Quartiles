@@ -1,0 +1,233 @@
+---
+title: "Survival Analysis based on CD123 Expression"
+author: "Jenny Smith"
+date: "November 20, 2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+```{r setup}
+library(knitr)
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=50),
+                      tidy=TRUE, fig.align='center')
+knitr::opts_knit$set(root.dir = file.path(TARGET,'Clinical/analysis/2019.11.20_CD123_Expression_Quartiles'))
+options(stringsAsFactors = FALSE,bitmapType = 'cairo', device='x11')
+grDevices::X11.options(type='cairo')
+```
+
+```{r message = FALSE, warning=FALSE}
+library(stringr)
+library(magrittr)
+library(ggplot2)
+library(dplyr)
+library(Cairo)
+library(gridExtra)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(readr)
+getwd()
+```
+
+```{r}
+source("~/scripts/survival_analysis/Survplot_Functions_2018.10.24.r")
+```
+
+#Read in the clinical data
+
+```{r}
+CDE.1031 <- read.csv(file.path(CDE,"1031/AAML1031_TARGET_CDEs_with_HiAR_PrimaryCyto_and_FusionCalls_9.3.19.csv"), 
+                     stringsAsFactors = FALSE)
+
+CDE.1031 <- CDE.1031 %>% 
+  filter(!is.na(Reg.)) 
+
+head(CDE.1031[,1:5])
+dim(CDE.1031) #1272  122
+```
+
+# Flow Cytometry data
+
+```{r}
+flow <- read.csv(file.path(TARGET,"FlowCytometry/MFI/2019Nov_COG_J.Wang_CD123/COG1031_CD123_Complete.csv")) %>% 
+  select(Reg.=COGID, CD123_MFI=CD123_Linear)
+flow <- flow[complete.cases(flow),]
+
+head(flow)
+dim(flow) #1040    2
+```
+
+```{r}
+library(gtools)
+
+CDE.1031.updated <- CDE.1031 %>% 
+  filter( Cyto.Fusion.Molecular.Risk != "Unknown") %>%
+  inner_join(., flow, by=c("Reg.")) %>% 
+  mutate(CD123_MFI_Quantiles=quantcut(x = CD123_MFI,q = 4, 
+                                      labels=paste0("q",1:4))) %>% 
+  mutate(CD123_MFI_Groups=ifelse(CD123_MFI_Quantiles != "q4",
+                                 "q123","q4")) %>%
+  select(Reg., USI, OS.ID=Recoded.OS.ID, Event.ID=Recoded.EFS.ID, everything()) %>%
+  set_rownames(.$Reg.)
+
+
+dim(CDE.1031.updated)
+```
+
+```{r}
+table(CDE.1031.updated$CD123_MFI_Quantiles)
+table(CDE.1031.updated$CD123_MFI_Groups)
+# View(select(CDE.1031.updated,CD123_MFI, CD123_MFI_Quantiles))
+```
+
+
+#Survival Analysis 
+
+```{r}
+os.est <- c("OS.time..days.", "OS.ID")
+efs.est <- c("EFS.time..days.", "Event.ID")
+    
+# ContinuousMFI <- 
+```
+
+#Kaplan Meier Plots
+
+```{r}
+table(CDE.1031.updated$CD123_MFI_Groups, CDE.1031.updated$Cyto.Fusion.Molecular.Risk)
+```
+
+#All Comers 
+
+```{r}
+KM <- KM.plots(df=CDE.1031.updated,
+                  group_vars = NULL,
+                  type = "OS", 
+                  covariate = "CD123_MFI_Groups",
+                  cohort = "1031")
+```
+
+```{r fig.width=11, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_AllComers_OS_KM.png", width = 11, height = 6, units="in", res=300)
+grid.arrange(grobs=c(KM$OS,KM$EFS), ncol=2)
+# dev.off()
+```
+
+#By Cytogenetic + Fusion Risk
+
+```{r}
+KM.RG <- KM.plots(df=CDE.1031.updated,
+                  group_vars = "Cyto.Fusion.Molecular.Risk", 
+                  type = "OS", 
+                  covariate = "CD123_MFI_Groups",
+                  cohort = "1031")
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_RiskGroup_OS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.RG$OS, ncol=3)
+# dev.off()
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_RiskGroup_EFS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.RG$EFS, ncol=3)
+# dev.off()
+```
+
+#Standard Risk +/- MRD
+
+```{r}
+table(CDE.1031.updated$Cyto.Fusion.Molecular.Risk, 
+      CDE.1031.updated$CD123_MFI_Groups, 
+      CDE.1031.updated$MRD.at.end.of.course.1)
+```
+
+```{r}
+KM.SR.MRD <- KM.plots(df=filter(CDE.1031.updated, 
+                                Cyto.Fusion.Molecular.Risk == "Standard" & MRD.at.end.of.course.1 != "Unknown"),
+                  group_vars = "MRD.at.end.of.course.1", 
+                  type = "OS", 
+                  covariate = "CD123_MFI_Groups",
+                  cohort = "1031")
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_StdRiskGroup_by_MRD_OS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.SR.MRD$OS, ncol=3)
+# dev.off()
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_StdRiskGroup_by_MRD_EFS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.SR.MRD$EFS, ncol=3)
+# dev.off()
+```
+
+#Classical CMrisk
+
+```{r}
+table(CDE.1031.updated$CD123_MFI_Groups, CDE.1031.updated$Classical.Risk.group)
+```
+
+```{r}
+KM.RGC <- KM.plots(df=CDE.1031.updated,
+                  group_vars = "Classical.Risk.group", 
+                  type = "OS", 
+                  covariate = "CD123_MFI_Groups",
+                  cohort = "1031")
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_ClassicalRiskGroup_OS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.RGC$OS[1:3], ncol=3)
+# dev.off()
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_ClassicalRiskGroup_EFS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.RGC$EFS[1:3], ncol=3)
+# dev.off()
+```
+
+##with only Standard Risk
+
+```{r}
+KM.SRC.MRD <- KM.plots(df=filter(CDE.1031.updated, 
+                                Classical.Risk.group == "Standard" & MRD.at.end.of.course.1 != "Unknown"),
+                  group_vars = "MRD.at.end.of.course.1", 
+                  type = "OS", 
+                  covariate = "CD123_MFI_Groups",
+                  cohort = "1031")
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_ClassicalStdRiskGroup_by_MRD_OS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.SRC.MRD$OS, ncol=3)
+# dev.off()
+```
+
+```{r fig.width=17, fig.height=6}
+# png("CD123_Expression_Q4vsQ123_by_ClassicalStdRiskGroup_by_MRD_EFS_KM.png", width = 16, height = 6, units="in", res=300)
+grid.arrange(grobs=KM.SRC.MRD$EFS, ncol=3)
+# dev.off()
+```
+
+
+#Session Information
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
